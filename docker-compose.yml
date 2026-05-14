@@ -1,0 +1,167 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: folm-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: folm_payments
+      POSTGRES_USER: folm_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secure_password_change_in_production}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/pgdata
+      - ./backend/prisma/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "5432:5432"
+    networks:
+      - folm-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U folm_user -d folm_payments"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: folm-backend
+    restart: unless-stopped
+    environment:
+      # Server Configuration
+      PORT: 5000
+      NODE_ENV: production
+      API_BASE_URL: http://localhost:5000/api
+      
+      # Database
+      DATABASE_URL: postgresql://folm_user:${POSTGRES_PASSWORD:-secure_password_change_in_production}@postgres:5432/folm_payments?schema=public
+      
+      # Frontend
+      FRONTEND_URL: http://localhost:3000
+      CORS_ORIGINS: http://localhost:3000,https://yourdomain.com
+      
+      # JWT Security - CHANGE THESE IN PRODUCTION
+      JWT_SECRET: ${JWT_SECRET:-change-this-super-secure-jwt-secret-in-production}
+      JWT_EXPIRES_IN: 7d
+      ADMIN_JWT_SECRET: ${ADMIN_JWT_SECRET:-change-this-admin-jwt-secret-in-production}
+      
+      # Payment Configuration - ADD YOUR ACTUAL KEYS
+      PAYSTACK_SECRET_KEY: ${PAYSTACK_SECRET_KEY}
+      PAYSTACK_PUBLIC_KEY: ${PAYSTACK_PUBLIC_KEY}
+      PAYSTACK_WEBHOOK_SECRET: ${PAYSTACK_WEBHOOK_SECRET}
+      
+      PAYPAL_CLIENT_ID: ${PAYPAL_CLIENT_ID}
+      PAYPAL_CLIENT_SECRET: ${PAYPAL_CLIENT_SECRET}
+      PAYPAL_WEBHOOK_ID: ${PAYPAL_WEBHOOK_ID}
+      PAYPAL_MODE: ${PAYPAL_MODE:-sandbox}
+      
+      # Email Configuration
+      EMAIL_HOST: ${EMAIL_HOST:-smtp.gmail.com}
+      EMAIL_PORT: ${EMAIL_PORT:-587}
+      EMAIL_USER: ${EMAIL_USER}
+      EMAIL_PASS: ${EMAIL_PASS}
+      EMAIL_FROM: ${EMAIL_FROM:-"Fountain of Light Prayer Ministry <noreply@folm.org>"}
+      
+      # Admin Configuration
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@folm.org}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-change_this_password}
+      
+      # Security
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-change-this-32-character-key-prod}
+      RATE_LIMIT_WINDOW_MS: 900000
+      RATE_LIMIT_MAX_REQUESTS: 100
+      
+      # Ministry Information
+      MINISTRY_NAME: "Fountain of Light Prayer Ministry International"
+      MINISTRY_EMAIL: info@folm.org
+      MINISTRY_PHONE: "+1-555-FOLM-123"
+      
+    ports:
+      - "5000:5000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - folm-network
+    volumes:
+      - backend_logs:/app/logs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Frontend (React/Vite)
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: folm-frontend
+    restart: unless-stopped
+    environment:
+      VITE_API_BASE_URL: http://localhost:5000/api
+      VITE_APP_NAME: "Fountain of Light Prayer Ministry International"
+      VITE_PAYSTACK_PUBLIC_KEY: ${PAYSTACK_PUBLIC_KEY}
+      VITE_PAYPAL_CLIENT_ID: ${PAYPAL_CLIENT_ID}
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    networks:
+      - folm-network
+
+  # Redis for caching and sessions (optional)
+  redis:
+    image: redis:7-alpine
+    container_name: folm-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-secure_redis_password}
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - folm-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Nginx Reverse Proxy (optional)
+  nginx:
+    image: nginx:alpine
+    container_name: folm-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - nginx_logs:/var/log/nginx
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - folm-network
+
+volumes:
+  postgres_data:
+    driver: local
+  backend_logs:
+    driver: local
+  redis_data:
+    driver: local
+  nginx_logs:
+    driver: local
+
+networks:
+  folm-network:
+    driver: bridge

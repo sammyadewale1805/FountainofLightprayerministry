@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Debug Button Click</title>
+</head>
+<body>
+    <h1>Debug Button Click</h1>
+    <button id="testBtn" onclick="handleClick()">Test Button</button>
+    
+    <script>
+        let clickCount = 0;
+        
+        function handleClick() {
+            clickCount++;
+            console.log(`Click ${clickCount} - Timestamp: ${Date.now()}`);
+            
+            if (clickCount === 1) {
+                console.log('First click - should work');
+            } else {
+                console.log('Subsequent click');
+            }
+        }
+        
+        console.log('Debug script loaded');
+    </script>
+</body>
+</html>
